@@ -15,7 +15,7 @@ struct sMolecule {
 #include "kernel.cu"
 #include "kernel_CPU.c"
 
-#define N 1500
+#define N 15000
 
 void createMolecules(sMolecule A, sMolecule B, int n) {
 	for (int i = 0; i < n; i++) {
@@ -104,7 +104,7 @@ int main(int argc, char **argv){
 	printf("Solving on GPU...\n");
 	cudaEventRecord(start, 0);
 	// run it 10x for more accurately timing results
-        for (int i = 0; i < 10; i++)
+        for (int i = 0; i < 1; i++)
 		RMSD_GPU = solveGPU(dA, dB, N);
         cudaEventRecord(stop, 0);
         cudaEventSynchronize(stop);
