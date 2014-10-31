@@ -12,10 +12,19 @@ struct sMolecule {
 	// do not corrupt mem. access optimization here...
 };
 
-#include "kernel.cu"
+#ifdef KERNEL_NO_1
+    #include "kernel1.cu"
+#elif KERNEL_NO_2
+    #include "kernel2.cu"
+#elif KERNEL_NO_3
+    #include "kernel3.cu"
+#else
+    #include "kernel2.cu"
+#endif
+
 #include "kernel_CPU.c"
 
-#define N 15000
+#define N 50000
 
 void createMolecules(sMolecule A, sMolecule B, int n) {
 	for (int i = 0; i < n; i++) {
@@ -38,7 +47,7 @@ void createMolecules(sMolecule A, sMolecule B, int n) {
 	}
 }
 
-int main(int argc, char **argv){
+int main(int argc, char **argv) {
 	sMolecule A, B;
 	A.x = A.y = A.z = B.x = B.y = B.z = NULL;
 	sMolecule dA, dB;
@@ -104,13 +113,14 @@ int main(int argc, char **argv){
 	printf("Solving on GPU...\n");
 	cudaEventRecord(start, 0);
 	// run it 10x for more accurately timing results
-        for (int i = 0; i < 1; i++)
-		RMSD_GPU = solveGPU(dA, dB, N);
+        for (int i = 0; i < 10; i++) {
+		  RMSD_GPU = solveGPU(dA, dB, N);
+        }
         cudaEventRecord(stop, 0);
         cudaEventSynchronize(stop);
         cudaEventElapsedTime(&time, start, stop);
 	printf("GPU performance: %f megapairs/s\n",
-                float(N)*float(N-1)/2.0f/time/1e2f);
+                float(N) * float(N-1)/2.0f/time/1e2f);
 
 	printf("CPU RMSD: %f\nGPU RMSD: %f\n", RMSD_CPU, RMSD_GPU);
 	// check GPU results

@@ -5,31 +5,28 @@
 __global__
 void atoms_difference(sMolecule A, sMolecule B,
                         float * d_result,
-                        int width,
-                        int size)
+                        int width)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
 
-    if (i * width + j < size) {
-        // printf("processing (%d, %d)\n", i, j);
-        if (i < width && i < j && j < width) {
-            float da = sqrt(pow_2(A.x[i] - A.x[j])
-                    + pow_2(A.y[i] - A.y[j])
-                    + pow_2(A.z[i] - A.z[j]));
-            float db = sqrt(pow_2(B.x[i] - B.x[j])
-                + pow_2(B.y[i] - B.y[j])
-                + pow_2(B.z[i] - B.z[j]));
-            // printf("Ax diff [%f, %f, %f]\n",
-            //             pow_2(A.x[i] - A.x[j]),
-            //             pow_2(A.y[i] - A.y[j]),
-            //             pow_2(A.z[i] - A.z[j]));
-            // printf("Da: %f db: %f\n", da, db);
-            // printf("saving result: %f\n", pow_2(da - db));
-            d_result[i * width + j] = pow_2(da - db);
-        } else {
-            d_result[i * width + j] = 0.0f;
-        }
+    // printf("processing (%d, %d)\n", i, j);
+    if (i < j && j < width && i < width) {
+        float da = sqrt(pow_2(A.x[i] - A.x[j])
+            + pow_2(A.y[i] - A.y[j])
+            + pow_2(A.z[i] - A.z[j]));
+        float db = sqrt(pow_2(B.x[i] - B.x[j])
+            + pow_2(B.y[i] - B.y[j])
+            + pow_2(B.z[i] - B.z[j]));
+        // printf("Ax diff [%f, %f, %f]\n",
+        //             pow_2(A.x[i] - A.x[j]),
+        //             pow_2(A.y[i] - A.y[j]),
+        //             pow_2(A.z[i] - A.z[j]));
+        // printf("Da: %f db: %f\n", da, db);
+        // printf("saving result: %f\n", pow_2(da - db));
+        d_result[j * width + i] = pow_2(da - db);
+    } else {
+        d_result[j * width + i] = 0.0f;
     }
 }
 
@@ -67,25 +64,26 @@ void free_molecule(sMolecule d_A)
 
 float solveGPU(sMolecule d_A, sMolecule d_B, int n) {
 
-    int BLOCK_SIZE  = 8;
-    int result_size = pow_2(n);
+    int BLOCK_SIZE_X = 8;
+    int BLOCK_SIZE_Y = 4;
+    int GRID_SIZE_X  = (n / BLOCK_SIZE_X) + 1;
+    int GRID_SIZE_Y  = (n / BLOCK_SIZE_Y) + 1;
+
+    dim3 dimBlock(BLOCK_SIZE_X, BLOCK_SIZE_Y);
+    dim3 dimGrid(GRID_SIZE_X, GRID_SIZE_Y);
 
     float *d_result;
+    int result_size = (GRID_SIZE_X * BLOCK_SIZE_X) * (GRID_SIZE_Y * BLOCK_SIZE_Y);
 
     cudaError err = cudaMalloc(&d_result, result_size * sizeof(float));
     if ( cudaSuccess != err ) {
         fprintf( stderr, "Cuda error in file '%s' in line %i : %s.\n",
-                 __FILE__, __LINE__, cudaGetErrorString( err) );
+                 __FILE__, __LINE__, cudaGetErrorString(err) );
         return 0.0f;
     }
 
-    int GRID_SIZE = (n / BLOCK_SIZE) + 1;
-    printf("Grid size: %d\n", GRID_SIZE);
-    dim3 dimBlock(BLOCK_SIZE, BLOCK_SIZE);
-    dim3 dimGrid(GRID_SIZE, GRID_SIZE);
-
     atoms_difference<<<dimGrid, dimBlock>>>
-                    (d_A, d_B, d_result, n, result_size);;
+                    (d_A, d_B, d_result, n);;
 
     cublasStatus_t ret;
     cublasHandle_t handle;
