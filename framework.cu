@@ -18,6 +18,8 @@ struct sMolecule {
     #include "kernel2.cu"
 #elif KERNEL_NO_3
     #include "kernel3.cu"
+#elif KERNEL_NO_4
+    #include "kernel4.cu"
 #else
     #include "kernel2.cu"
 #endif
