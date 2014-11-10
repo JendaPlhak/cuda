@@ -1,4 +1,7 @@
 #include <cublas_v2.h>
+#include <thrust/device_ptr.h>
+#include <thrust/reduce.h>
+#include <thrust/execution_policy.h>
 
 #define pow_2(x) ( ((x) * (x)) )
 
@@ -56,13 +59,9 @@ float solveGPU(sMolecule d_A, sMolecule d_B, int n) {
         atoms_difference<<<dim3(GRID_SIZE_X), dimBlock>>> (d_A, d_B, d_result, i);
     }
 
-    cublasStatus_t ret;
-    cublasHandle_t handle;
-    ret = cublasCreate(&handle);
-
-    float RMSD = 0.0f;
-    // sum using cublas reduction algorithm
-    cublasSasum(handle, result_size, d_result, 1, &RMSD);
+    float RMSD = 0;
+    thrust::device_ptr<float> dptr(d_result);
+    RMSD = thrust::reduce(thrust::device, dptr, dptr + result_size);
 
     cudaFree(d_result);
     return sqrt(1 / ((float)n * ((float)n - 1)) * RMSD);

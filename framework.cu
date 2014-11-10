@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <cuda_runtime.h>
+#include <unistd.h>
 
 // molecule is stored as cartesian coordinates of its atom, each dimmension
 // is in separate array
@@ -26,7 +27,7 @@ struct sMolecule {
 
 #include "kernel_CPU.c"
 
-#define N 50000
+#define N 2000
 
 void createMolecules(sMolecule A, sMolecule B, int n) {
 	for (int i = 0; i < n; i++) {

@@ -1,4 +1,8 @@
 #include <cublas_v2.h>
+#include <thrust/device_ptr.h>
+#include <thrust/reduce.h>
+#include <thrust/execution_policy.h>
+
 
 #define pow_2(x) ( ((x) * (x)) )
 
@@ -43,42 +47,11 @@ void atoms_difference(sMolecule A, sMolecule B,
     }
 }
 
-float * array_malloc_GPU(int size)
-{
-    float * d_array;
-    cudaMalloc(&d_array, size * sizeof(float));
-    return d_array;
-}
-
-float * array_to_GPU(float * array, int size)
-{
-    float * d_array = array_malloc_GPU(size);
-    cudaMemcpy(d_array, array,
-                size * sizeof(float),
-                cudaMemcpyHostToDevice);
-    return d_array;
-}
-
-sMolecule molecule_to_GPU(sMolecule A, int size)
-{
-    sMolecule d_A;
-    d_A.x = array_to_GPU(A.x, size);
-    d_A.y = array_to_GPU(A.y, size);
-    d_A.z = array_to_GPU(A.z, size);
-    return d_A;
-}
-
-void free_molecule(sMolecule d_A)
-{
-    cudaFree(d_A.x);
-    cudaFree(d_A.y);
-    cudaFree(d_A.z);
-}
 
 float solveGPU(sMolecule d_A, sMolecule d_B, int n) {
 
-    int BLOCK_SIZE_X = 16;
-    int BLOCK_SIZE_Y = 16;
+    int BLOCK_SIZE_X = 32;
+    int BLOCK_SIZE_Y = 8;
     int GRID_SIZE_X  = (n / BLOCK_SIZE_X) + 1;
     int GRID_SIZE_Y  = (n / BLOCK_SIZE_Y) + 1;
 
@@ -102,15 +75,11 @@ float solveGPU(sMolecule d_A, sMolecule d_B, int n) {
     }
 
     atoms_difference<<<dimGrid, dimBlock>>>
-                    (d_A, d_B, d_result, n);;
+                    (d_A, d_B, d_result, n);
 
-    cublasStatus_t ret;
-    cublasHandle_t handle;
-    ret = cublasCreate(&handle);
-
-    float RMSD = 0.0f;
-    // sum using cublas reduction algorithm
-    cublasSasum(handle, result_size, d_result, 1, &RMSD);
+    float RMSD = 0;
+    thrust::device_ptr<float> dptr(d_result);
+    RMSD = thrust::reduce(thrust::device, dptr, dptr + result_size);
 
     cudaFree(d_result);
     return sqrt(1 / ((float)n * ((float)n - 1)) * RMSD);
