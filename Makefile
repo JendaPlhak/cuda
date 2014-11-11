@@ -3,7 +3,7 @@ CFLAGS  := -arch compute_20 -lcublas
 CFLAGS  += -O3 --use_fast_math -lineinfo --generate-line-info
 
 SRCS    := kernel_CPU.c
-FRAMEWORKS := framework1 framework2 framework3 framework4
+FRAMEWORKS := framework4 framework5 # framework1 framework2 framework3 
 
 all: $(FRAMEWORKS)
 
