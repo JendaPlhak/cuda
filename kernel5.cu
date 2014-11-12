@@ -5,7 +5,12 @@
 
 
 #define pow_2(x) ( ((x) * (x)) )
-#define BLOCK_SIZE 128
+
+#if MOLECULE_SIZE > 2000
+    #define BLOCK_SIZE 512
+#else
+    #define BLOCK_SIZE 64
+#endif
 
 struct Atom {
     float x, y, z;
@@ -31,7 +36,7 @@ void atoms_difference(sMolecule A, sMolecule B,
         } else {
             skip = 0;
         }
-    }
+    } 
     __syncthreads();
     if (skip == 1) {
         return;
@@ -50,8 +55,6 @@ void atoms_difference(sMolecule A, sMolecule B,
     B_y[threadIdx.x] = B.y[begin + threadIdx.x];
     B_z[threadIdx.x] = B.z[begin + threadIdx.x];
 
-    __syncthreads();
-
     if (i >= n) {
         return;
     }
@@ -64,6 +67,7 @@ void atoms_difference(sMolecule A, sMolecule B,
     b_y = B.y[i];
     b_z = B.z[i];
 
+    __syncthreads();
     float sum = 0.0;
     for (int j = 0; j < BLOCK_SIZE; ++j) {
         int index = begin + j;
@@ -95,7 +99,6 @@ float solveGPU(sMolecule d_A, sMolecule d_B, int n) {
 
     int line_blocks = n / BLOCK_SIZE + 1;
     int GRID_SIZE   = pow_2(line_blocks);
-
     float *d_result;
     int result_size = n;
 

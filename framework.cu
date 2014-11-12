@@ -13,6 +13,8 @@ struct sMolecule {
 	// do not corrupt mem. access optimization here...
 };
 
+#define MOLECULE_SIZE 2000
+
 #ifdef KERNEL_NO_1
     #include "kernel1.cu"
 #elif KERNEL_NO_2
@@ -29,7 +31,8 @@ struct sMolecule {
 
 #include "kernel_CPU.c"
 
-#define N 2000
+#define N (MOLECULE_SIZE)
+
 
 void createMolecules(sMolecule A, sMolecule B, int n) {
 	for (int i = 0; i < n; i++) {
