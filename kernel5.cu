@@ -44,7 +44,8 @@ void atoms_difference(sMolecule A, sMolecule B,
         return;
     }
 
-    int i     = (quot) * BLOCK_SIZE + threadIdx.x;
+    int block_begin = (quot) * BLOCK_SIZE;
+    int i     = block_begin + threadIdx.x;
     int begin = (reminder) * BLOCK_SIZE;
 
     __shared__ float A_x[BLOCK_SIZE], A_y[BLOCK_SIZE], A_z[BLOCK_SIZE];
@@ -61,15 +62,34 @@ void atoms_difference(sMolecule A, sMolecule B,
         return;
     }
 
-    a_x = A.x[i];
-    a_y = A.y[i];
-    a_z = A.z[i];
-
-    b_x = B.x[i];
-    b_y = B.y[i];
-    b_z = B.z[i];
-
+    __shared__ int copy_from_shared;
+    if (0 == threadIdx.x) {
+        if (block_begin == begin) {
+            copy_from_shared = 1;
+        } else {
+            copy_from_shared = 0;
+        }
+    }
     __syncthreads();
+
+    if (1 == copy_from_shared) {
+        a_x = A_x[threadIdx.x];
+        a_y = A_y[threadIdx.x];
+        a_z = A_z[threadIdx.x];
+
+        b_x = B_x[threadIdx.x];
+        b_y = B_y[threadIdx.x];
+        b_z = B_z[threadIdx.x];
+    } else {
+        a_x = A.x[i];
+        a_y = A.y[i];
+        a_z = A.z[i];
+
+        b_x = B.x[i];
+        b_y = B.y[i];
+        b_z = B.z[i];
+    }
+
     float sum = 0.0;
     #ifdef LARGE
         #pragma unroll 32
