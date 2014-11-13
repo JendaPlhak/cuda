@@ -7,8 +7,10 @@
 #define pow_2(x) ( ((x) * (x)) )
 
 #if MOLECULE_SIZE > 2000
+    #define LARGE
     #define BLOCK_SIZE 512
 #else
+    #define SMALL
     #define BLOCK_SIZE 64
 #endif
 
@@ -69,6 +71,12 @@ void atoms_difference(sMolecule A, sMolecule B,
 
     __syncthreads();
     float sum = 0.0;
+    #ifdef LARGE
+        #pragma unroll 32
+    #endif
+    #ifdef SMALL
+        #pragma unroll 64
+    #endif
     for (int j = 0; j < BLOCK_SIZE; ++j) {
         int index = begin + j;
         if (index >= n) {
@@ -76,12 +84,14 @@ void atoms_difference(sMolecule A, sMolecule B,
         }
         if (i < index) { 
             // printf("processing (%d, %d)\n", i, index);
-            float da = sqrt(pow_2(A_x[j] - a_x)
-                + pow_2(A_y[j] - a_y)
-                + pow_2(A_z[j] - a_z));
-            float db = sqrt(pow_2(B_x[j] - b_x)
-                + pow_2(B_y[j] - b_y)
-                + pow_2(B_z[j] - b_z));
+            float diff_x = A_x[j] - a_x;
+            float diff_y = A_y[j] - a_y;
+            float diff_z = A_z[j] - a_z;
+            float da = sqrt(pow_2(diff_x) + pow_2(diff_y) + pow_2(diff_z));
+            diff_x = B_x[j] - b_x;
+            diff_y = B_y[j] - b_y;
+            diff_z = B_z[j] - b_z;
+            float db = sqrt(pow_2(diff_x) + pow_2(diff_y) + pow_2(diff_z));
             // printf("Ax diff [%f, %f, %f]\n",
             //             pow_2(A.x[i] - A.x[j]),
             //             pow_2(A.y[i] - A.y[j]),

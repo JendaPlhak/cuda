@@ -1,6 +1,6 @@
 CXX     := nvcc
 CFLAGS  := -arch compute_20 -lcublas
-CFLAGS  += -O3 --use_fast_math -lineinfo --generate-line-info
+CFLAGS  += -O3 --use_fast_math
 
 SRCS    := kernel_CPU.c
 FRAMEWORKS := framework4 framework5 # framework1 framework2 framework3 

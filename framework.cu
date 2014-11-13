@@ -1,4 +1,4 @@
-#include <stdlib.h>
+  #include <stdlib.h>
 #include <stdio.h>
 #include <cuda_runtime.h>
 #include <unistd.h>
@@ -13,22 +13,23 @@ struct sMolecule {
 	// do not corrupt mem. access optimization here...
 };
 
-#define MOLECULE_SIZE 2000
+#define MOLECULE_SIZE 50000
 
-#ifdef KERNEL_NO_1
-    #include "kernel1.cu"
-#elif KERNEL_NO_2
-    #include "kernel2.cu"
-#elif KERNEL_NO_3
-    #include "kernel3.cu"
-#elif KERNEL_NO_4
-    #include "kernel4.cu"
-#elif KERNEL_NO_5
-    #include "kernel5.cu"
-#else
-    #include "kernel2.cu"
-#endif
+// #ifdef KERNEL_NO_1
+//     #include "kernel1.cu"
+// #elif KERNEL_NO_2
+//     #include "kernel2.cu"
+// #elif KERNEL_NO_3
+//     #include "kernel3.cu"
+// #elif KERNEL_NO_4
+//     #include "kernel4.cu"
+// #elif KERNEL_NO_5
+//     #include "kernel5.cu"
+// #else
+//     #include "kernel2.cu"
+// #endif
 
+#include "kernel5.cu"
 #include "kernel_CPU.c"
 
 #define N (MOLECULE_SIZE)
