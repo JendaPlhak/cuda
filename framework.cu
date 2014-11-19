@@ -25,6 +25,8 @@ struct sMolecule {
     #include "kernel4.cu"
 #elif KERNEL_NO_5
     #include "kernel5.cu"
+#elif KERNEL_NO_6
+    #include "kernel6.cu"
 #else
     #include "kernel2.cu"
 #endif
