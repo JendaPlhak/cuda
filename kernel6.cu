@@ -6,15 +6,10 @@
 
 #define pow_2(x) ( ((x) * (x)) )
 
-#if MOLECULE_SIZE > 2000
-    #define LARGE
-    #define BLOCK_SIZE 512
-#else
-    #define SMALL
-    #define BLOCK_SIZE 32
-#endif
+#define BLOCK_SIZE_BIG   512
+#define BLOCK_SIZE_SMALL 64
 
-
+template <int BLOCK_SIZE>
 __global__
 void atoms_difference(sMolecule A, sMolecule B,
                         float * d_result,
@@ -49,41 +44,21 @@ void atoms_difference(sMolecule A, sMolecule B,
         return;
     }
 
-    __shared__ int copy_from_shared;
-    if (0 == threadIdx.x) {
-        if (block_begin == begin) {
-            copy_from_shared = 1;
-        } else {
-            copy_from_shared = 0;
-        }
-    }
     __syncthreads();
+    a_x = A.x[i];
+    a_y = A.y[i];
+    a_z = A.z[i];
 
-    if (1 == copy_from_shared) {
-        a_x = A_x[threadIdx.x];
-        a_y = A_y[threadIdx.x];
-        a_z = A_z[threadIdx.x];
-
-        b_x = B_x[threadIdx.x];
-        b_y = B_y[threadIdx.x];
-        b_z = B_z[threadIdx.x];
-    } else {
-        a_x = A.x[i];
-        a_y = A.y[i];
-        a_z = A.z[i];
-
-        b_x = B.x[i];
-        b_y = B.y[i];
-        b_z = B.z[i];
-    }
+    b_x = B.x[i];
+    b_y = B.y[i];
+    b_z = B.z[i];
 
     float sum = 0.0;
-    #ifdef LARGE
+    #if BLOCK_SIZE > 128
         #pragma unroll 32
+    #else
+        #pragma unroll 64
     #endif
-    // #ifdef SMALL
-    //     #pragma unroll 64
-    // #endif
     for (int j = 0; j < BLOCK_SIZE; ++j) {
         int index = begin + j;
         if (index >= n) {
@@ -114,6 +89,13 @@ void atoms_difference(sMolecule A, sMolecule B,
 
 float solveGPU(sMolecule d_A, sMolecule d_B, int n) {
 
+    int BLOCK_SIZE;
+    if (n > 2000) {
+        BLOCK_SIZE = 512;
+    } else {
+        BLOCK_SIZE = 64;
+    }
+
     int line_blocks = n / BLOCK_SIZE + 1;
     int GRID_SIZE   = (line_blocks * (line_blocks + 1)) / 2;
     float *d_result;
@@ -132,8 +114,13 @@ float solveGPU(sMolecule d_A, sMolecule d_B, int n) {
         return 0.0f;
     }
 
-    atoms_difference<<<GRID_SIZE, BLOCK_SIZE>>>
-                    (d_A, d_B, d_result, n, line_blocks);
+    if (n > 2000) {
+        atoms_difference<512><<<GRID_SIZE, BLOCK_SIZE>>>
+                            (d_A, d_B, d_result, n, line_blocks);
+    } else {
+        atoms_difference<64><<<GRID_SIZE, BLOCK_SIZE>>>
+                                (d_A, d_B, d_result, n, line_blocks);
+    }
 
     float RMSD = 0;
     thrust::device_ptr<float> dptr(d_result);
