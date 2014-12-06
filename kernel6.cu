@@ -11,37 +11,42 @@
 #define BLOCK_SIZE_BIG   512
 #define BLOCK_SIZE_SMALL 64
 
-template<int BLOCK_SIZE, bool diagonal_block>
-__host__ __device__ inline
-float lopp(int size, int i, int begin,
+template<int BLOCK_SIZE, bool diagonal_block, bool end_block>
+__device__ inline
+float loop(int size, int i, int begin,
            float a_x, float a_y, float a_z, float b_x, float b_y, float b_z,
            float A_x[BLOCK_SIZE], float A_y[BLOCK_SIZE], float A_z[BLOCK_SIZE],
            float B_x[BLOCK_SIZE], float B_y[BLOCK_SIZE], float B_z[BLOCK_SIZE])
 {
     float sum = 0.0;
     #if BLOCK_SIZE > 128
-        #pragma unroll 32
+        #pragma unroll 128
     #else
-        #pragma unroll 64
+        #pragma unroll 16
     #endif
-    for (int j = 0; j < size; ++j) {
+    for (int j = 0; j < (end_block ? size : BLOCK_SIZE); ++j) {
         if (not diagonal_block || i < begin + j) { // Real index of Atom corresponding to j.
             // printf("processing (%d, %d)\n", i, index);
             float diff_x = A_x[j] - a_x;
             float diff_y = A_y[j] - a_y;
             float diff_z = A_z[j] - a_z;
-            float da = sqrt(pow_2(diff_x) + pow_2(diff_y) + pow_2(diff_z));
+
+            float d_sumA = pow_2(diff_x) + pow_2(diff_y) + pow_2(diff_z);
+
             diff_x = B_x[j] - b_x;
             diff_y = B_y[j] - b_y;
             diff_z = B_z[j] - b_z;
-            float db = sqrt(pow_2(diff_x) + pow_2(diff_y) + pow_2(diff_z));
+
+            float d_sumB = pow_2(diff_x) + pow_2(diff_y) + pow_2(diff_z);
+
+            sum += d_sumA + d_sumB;
+            sum += -2.f * sqrt(d_sumA * d_sumB);
             // printf("Ax diff [%f, %f, %f]\n",
             //             pow_2(A.x[i] - A.x[j]),
             //             pow_2(A.y[i] - A.y[j]),
             //             pow_2(A.z[i] - A.z[j]));
             // printf("Da: %f db: %f\n", da, db);
             // printf("saving result: %f\n", pow_2(da - db));
-            sum += pow_2(da - db);
         }
     }
     return sum;
@@ -57,6 +62,7 @@ void atoms_difference(sMolecule A, sMolecule B,
     float a_x, a_y, a_z, b_x, b_y, b_z;
     __shared__ int row, col;
     __shared__ bool diagonal_block;
+    __shared__ bool end_block;
     if (0 == threadIdx.x) {
         // calculate current row by formula int(1/2 * (sqrt(8k + 1) - 1))
         row = (sqrt(8.0f * (float) blockIdx.x + 1) - 1) / 2.0f;
@@ -107,21 +113,38 @@ void atoms_difference(sMolecule A, sMolecule B,
     // calculate upper bound
     __shared__ int size;
     if (threadIdx.x == 0) {
+        int tmp_size = begin + BLOCK_SIZE - n;
         // calculate actual size of data block
-        size = BLOCK_SIZE - fmax(0, (double) begin + BLOCK_SIZE - n);
+        if (tmp_size < 0) {
+            size = BLOCK_SIZE;
+            end_block = false;
+        } else {
+            size = BLOCK_SIZE - tmp_size;
+            end_block = true;
+        }
     }
     __syncthreads();
     float sum;
-    if (true == diagonal_block) {
-        sum = lopp<BLOCK_SIZE, true>(size, i, begin,
-                                       a_x, a_y, a_z, b_x, b_y, b_z,
-                                       A_x, A_y, A_z,
-                                       B_x, B_y, B_z);
+    if (true == diagonal_block && true == end_block) {
+        sum = loop<BLOCK_SIZE, true, true>(size, i, begin,
+                                           a_x, a_y, a_z, b_x, b_y, b_z,
+                                           A_x, A_y, A_z,
+                                           B_x, B_y, B_z);
+    } else if (true == diagonal_block && false == end_block) {
+        sum = loop<BLOCK_SIZE, true, false>(size, i, begin,
+                                            a_x, a_y, a_z, b_x, b_y, b_z,
+                                            A_x, A_y, A_z,
+                                            B_x, B_y, B_z);
+    } else if (false == diagonal_block && true == end_block) {
+        sum = loop<BLOCK_SIZE, false, true>(size, i, begin,
+                                            a_x, a_y, a_z, b_x, b_y, b_z,
+                                            A_x, A_y, A_z,
+                                            B_x, B_y, B_z);
     } else {
-        sum = lopp<BLOCK_SIZE, false>(size, i, begin,
-                                       a_x, a_y, a_z, b_x, b_y, b_z,
-                                       A_x, A_y, A_z,
-                                       B_x, B_y, B_z);
+        sum = loop<BLOCK_SIZE, false, false>(size, i, begin,
+                                             a_x, a_y, a_z, b_x, b_y, b_z,
+                                             A_x, A_y, A_z,
+                                             B_x, B_y, B_z);
     }
     atomicAdd(d_result + i, sum);
 }
@@ -136,7 +159,7 @@ float solveGPU(sMolecule d_A, sMolecule d_B, int n) {
         BLOCK_SIZE = BLOCK_SIZE_SMALL;
     }
 
-    int line_blocks = n / BLOCK_SIZE + 1;
+    int line_blocks = n / BLOCK_SIZE + (n % BLOCK_SIZE == 0 ? 0 : 1);
     int GRID_SIZE   = (line_blocks * (line_blocks + 1)) / 2;
     float *d_result;
     int result_size = n;
