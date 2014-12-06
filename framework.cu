@@ -15,7 +15,7 @@ struct sMolecule {
 #include "kernel6.cu"
 #include "kernel_CPU.c"
 
-#define N 50000
+#define N 2000
 
 void createMolecules(sMolecule A, sMolecule B, int n) {
     for (int i = 0; i < n; i++) {
@@ -92,6 +92,7 @@ int main(int argc, char **argv){
         printf("Solving on CPU...\n");
     cudaEventRecord(start, 0);
     RMSD_CPU = solveCPU(A, B, N);
+    // RMSD_CPU = 0.f;
     cudaEventRecord(stop, 0);
         cudaEventSynchronize(stop);
         float time;
