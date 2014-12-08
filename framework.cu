@@ -12,7 +12,11 @@ struct sMolecule {
     // do not corrupt mem. access optimization here...
 };
 
-#include "kernel6.cu"
+#ifdef KERNEL_NO_7
+    #include "kernel7.cu"
+#else
+    #include "kernel6.cu"
+#endif
 #include "kernel_CPU.c"
 
 #define N 2000
@@ -91,8 +95,8 @@ int main(int argc, char **argv){
     // solve on CPU
         printf("Solving on CPU...\n");
     cudaEventRecord(start, 0);
-    RMSD_CPU = solveCPU(A, B, N);
-    // RMSD_CPU = 0.f;
+    // RMSD_CPU = solveCPU(A, B, N);
+    RMSD_CPU = 0.f;
     cudaEventRecord(stop, 0);
         cudaEventSynchronize(stop);
         float time;

@@ -63,6 +63,7 @@ void atoms_difference(sMolecule A, sMolecule B,
     __shared__ int row, col;
     __shared__ bool diagonal_block;
     __shared__ bool end_block;
+
     if (0 == threadIdx.x) {
         // calculate current row by formula int(1/2 * (sqrt(8k + 1) - 1))
         row = (sqrt(8.0f * (float) blockIdx.x + 1) - 1) / 2.0f;

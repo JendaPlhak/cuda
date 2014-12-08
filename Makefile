@@ -1,9 +1,9 @@
 CXX     := nvcc
 CFLAGS  := -arch compute_20 -lcublas 
-CFLAGS  += -O3 --use_fast_math -lineinfo
+CFLAGS  += -O3 --use_fast_math -lineinfo -std=c++11
 
 SRCS    := kernel_CPU.c
-FRAMEWORKS := framework6 # framework1 framework2 framework3 framework4 framework5 
+FRAMEWORKS := framework6 framework7 # framework1 framework2 framework3 framework4 framework5 framework6
 
 all: $(FRAMEWORKS)
 
