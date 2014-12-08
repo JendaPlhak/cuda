@@ -11,11 +11,14 @@
 #define BLOCK_SIZE_BIG_750 512
 #define BLOCK_SIZE_BIG_480 256
 
-#define BLOCK_SIZE_SMALL_750 128
-#define BLOCK_SIZE_SMALL_480 128
+#define BLOCK_SIZE_SMALL_750 64
+#define BLOCK_SIZE_SMALL_480 64
 
 #define UNROLL_N_BIG_750 32
 #define UNROLL_N_BIG_480 32
+
+// #define UNROLL_N_BIG_750 1
+// #define UNROLL_N_BIG_480 1
 
 #define UNROLL_N_SMALL_750 16
 #define UNROLL_N_SMALL_480 32
@@ -275,7 +278,7 @@ float solveGPU_templated(const sMolecule d_A, const sMolecule d_B, const int n) 
 GPU_t getCurrentGPU() {
     int device;
     cudaGetDevice(&device);
-
+    
     cudaDeviceProp deviceProp;
     cudaGetDeviceProperties(&deviceProp, device);
     if ("GeForce GTX 750" == std::string(deviceProp.name)) {
