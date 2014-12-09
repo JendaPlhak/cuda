@@ -8,20 +8,24 @@
 
 #define pow_2(x) ( ((x) * (x)) )
 
+// ####### BLOCK SIZE ######
 #define BLOCK_SIZE_BIG_750 512
-#define BLOCK_SIZE_BIG_480 256
+#define BLOCK_SIZE_BIG_480 320
 
-#define BLOCK_SIZE_SMALL_750 64
+#define BLOCK_SIZE_SMALL_750 96
 #define BLOCK_SIZE_SMALL_480 64
+// #########################
 
+// ####### UNROLLING #######
 #define UNROLL_N_BIG_750 32
-#define UNROLL_N_BIG_480 32
+#define UNROLL_N_BIG_480 64
 
 // #define UNROLL_N_BIG_750 1
 // #define UNROLL_N_BIG_480 1
 
 #define UNROLL_N_SMALL_750 16
 #define UNROLL_N_SMALL_480 32
+// #########################
 
 enum GPU_t {
     NONE,
@@ -43,6 +47,18 @@ float CPU_reduction(float *d_data, const unsigned int n)
     free(h_odata);
     return result;
 }
+
+__device__ float d_final_result = 0.0f;
+
+// expects d_data to be array of size n = 2^k
+__global__ void 
+GPU_reduction(float *d_data, unsigned int n)
+{
+    const unsigned index = threadIdx.x + blockIdx.x * blockDim.x;
+    
+    d_final_result += d_data[index] + d_data[2 * index];
+}
+
 
 template<int Begin, int End, int Step = 1>
 //lambda unroller
@@ -69,18 +85,8 @@ float loop(const int size, const int i, const int begin,
            const float B_x[BLOCK_SIZE], const float B_y[BLOCK_SIZE], const float B_z[BLOCK_SIZE])
 {
     float sum = 0.0;
-    // #if BLOCK_SIZE == BLOCK_SIZE_BIG_750
-    //     #pragma unroll 128
-    // #elif BLOCK_SIZE == BLOCK_SIZE_BIG_480
-    //     #pragma unroll 64
-    // #elif BLOCK_SIZE == BLOCK_SIZE_SMALL_750
-    //     #pragma unroll 128
-    // #else
-    //     #pragma unroll 64
-    // #endif
     auto body = [&] (int j) {
         if (not diagonal_block || i < begin + j) { // Real index of Atom corresponding to j.
-            // printf("processing (%d, %d)\n", i, index);
             float diff_x = A_x[j] - a_x;
             float diff_y = A_y[j] - a_y;
             float diff_z = A_z[j] - a_z;
@@ -95,12 +101,6 @@ float loop(const int size, const int i, const int begin,
 
             sum += d_sumA + d_sumB;
             sum += -2.f * sqrt(d_sumA * d_sumB);
-            // printf("Ax diff [%f, %f, %f]\n",
-            //             pow_2(A.x[i] - A.x[j]),
-            //             pow_2(A.y[i] - A.y[j]),
-            //             pow_2(A.z[i] - A.z[j]));
-            // printf("Da: %f db: %f\n", da, db);
-            // printf("saving result: %f\n", pow_2(da - db));
         }
     };
 
@@ -131,13 +131,15 @@ float loop(const int size, const int i, const int begin,
     return sum;
 }
 
-template <unsigned BLOCK_SIZE, unsigned UNROLL_N>
+template <unsigned BLOCK_SIZE, unsigned UNROLL_N, bool is_big>
 __global__
 void atoms_difference(const sMolecule A, const sMolecule B,
                         float * d_result,
                         const int n,
                         const int line_blocks)
 {
+    float sum = 0.f;
+
     float a_x, a_y, a_z, b_x, b_y, b_z;
     __shared__ int row, col;
     __shared__ bool diagonal_block;
@@ -168,7 +170,11 @@ void atoms_difference(const sMolecule A, const sMolecule B,
     B_z[threadIdx.x] = B.z[begin + threadIdx.x];
 
     if (i >= n) {
-        return;
+        if (is_big) {
+            return;
+        } else {
+            goto REDUCTION;
+        }
     }
 
     // TODO: Does this provide any speedup?
@@ -204,7 +210,7 @@ void atoms_difference(const sMolecule A, const sMolecule B,
         }
     }
     __syncthreads();
-    float sum;
+    
     if (true == diagonal_block && true == end_block) {
         sum = loop<BLOCK_SIZE, UNROLL_N,
                      true, true>(size, i, begin,
@@ -230,7 +236,29 @@ void atoms_difference(const sMolecule A, const sMolecule B,
                                   A_x, A_y, A_z,
                                   B_x, B_y, B_z);
     }
-    atomicAdd(d_result + i, sum);
+    
+    if (is_big) {
+        atomicAdd(d_result + i, sum);
+    } else {
+REDUCTION:;
+        __shared__ float reduction[BLOCK_SIZE];
+        reduction[threadIdx.x] = sum;
+
+        __syncthreads();
+        int size_red = BLOCK_SIZE / 2;
+        while (size_red > 1) {
+            if (threadIdx.x >= size_red) {
+                return;
+            } else {
+                reduction[threadIdx.x] += reduction[size_red + threadIdx.x];
+            }
+            size_red /= 2;
+            __syncthreads();
+        }
+        if (threadIdx.x == 0) {
+            atomicAdd(&d_final_result, reduction[0] + reduction[1]);
+        }
+    }
 }
 
 constexpr bool 
@@ -243,42 +271,37 @@ float solveGPU_templated(const sMolecule d_A, const sMolecule d_B, const int n) 
 
     int line_blocks = n / BLOCK_SIZE + (n % BLOCK_SIZE == 0 ? 0 : 1);
     int GRID_SIZE   = (line_blocks * (line_blocks + 1)) / 2;
-    float *d_result;
+    float *d_result = NULL;
     int result_size = n;
+    float RMSD      = 0;
 
-    cudaError err = cudaMalloc(&d_result, result_size * sizeof(float));
-    // if ( cudaSuccess != err ) {
-    //     fprintf( stderr, "Cuda error in file '%s' in line %i : %s.\n",
-    //              __FILE__, __LINE__, cudaGetErrorString(err) );
-    //     return 0.0f;
-    // }
-    err = cudaMemset(d_result, 0, result_size * sizeof(float));
-    // if ( cudaSuccess != err ) {
-    //     fprintf( stderr, "Cuda error in file '%s' in line %i : %s.\n",
-    //              __FILE__, __LINE__, cudaGetErrorString(err) );
-    //     return 0.0f;
-    // }
+    if (is_big) {
+        cudaError err = cudaMalloc(&d_result, result_size * sizeof(float));
+        err = cudaMemset(d_result, 0, result_size * sizeof(float));
+    } else {
+        cudaMemcpyToSymbol(d_final_result, &RMSD, sizeof(RMSD));
+    }
 
-    atoms_difference<BLOCK_SIZE, UNROLL_N><<<GRID_SIZE, BLOCK_SIZE>>>
+    atoms_difference<BLOCK_SIZE, UNROLL_N, is_big><<<GRID_SIZE, BLOCK_SIZE>>>
                                             (d_A, d_B, d_result, n, line_blocks);
 
-    float RMSD = 0;
+    
     // perform reduction on GPU or CPU based on the size of molecule
     if (is_big) {
         thrust::device_ptr<float> dptr(d_result);
         RMSD = thrust::reduce(thrust::device, dptr, dptr + result_size);
+        cudaFree(d_result);
     } else {
-        RMSD = CPU_reduction(d_result, n);
+        cudaMemcpyFromSymbol(&RMSD, d_final_result, sizeof(RMSD));
+        // RMSD = CPU_reduction(d_result, n);
     }
-    
-    cudaFree(d_result);
     return sqrt(1 / ((float)n * ((float)n - 1)) * RMSD);
 }
 
 GPU_t getCurrentGPU() {
     int device;
     cudaGetDevice(&device);
-    
+
     cudaDeviceProp deviceProp;
     cudaGetDeviceProperties(&deviceProp, device);
     if ("GeForce GTX 750" == std::string(deviceProp.name)) {
