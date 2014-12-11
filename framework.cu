@@ -95,8 +95,8 @@ int main(int argc, char **argv){
     // solve on CPU
         printf("Solving on CPU...\n");
     cudaEventRecord(start, 0);
-    // RMSD_CPU = solveCPU(A, B, N);
-    RMSD_CPU = 0.f;
+    RMSD_CPU = solveCPU(A, B, N);
+    // RMSD_CPU = 0.f;
     cudaEventRecord(stop, 0);
         cudaEventSynchronize(stop);
         float time;
