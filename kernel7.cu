@@ -162,7 +162,7 @@ void atoms_difference(const sMolecule A, const sMolecule B,
 
     if (0 == threadIdx.x) {
         // calculate current row by formula int(1/2 * (sqrt(8k + 1) - 1))
-        row = (sqrt(8.0f * (float) blockIdx.x + 1) - 1) / 2.0f;
+        row = (sqrt(8.0f * blockIdx.x + 1) - 1) / 2.0f;
         col = blockIdx.x - (row * (row + 1)) / 2;
 
         diagonal_block = row == col;
@@ -270,7 +270,7 @@ REDUCTION:;
     // UnrollerL<0, divisible_2(BLOCK_SIZE)>::step(body_reduction, 0);
 
     __syncthreads();
-    while (size_red % 2 == 0) {
+    for (int i = 0; i < divisible_2(BLOCK_SIZE); ++i) {
         size_red /= 2;
         if (threadIdx.x >= size_red) {
             return;
@@ -280,6 +280,17 @@ REDUCTION:;
         __syncthreads();
     }
 
+    // __syncthreads();
+    // while (size_red % 2 == 0) {
+    //     size_red /= 2;
+    //     if (threadIdx.x >= size_red) {
+    //         return;
+    //     } else {
+    //         reduction[threadIdx.x] += reduction[size_red + threadIdx.x];
+    //     }
+    //     __syncthreads();
+    // }
+
     if (threadIdx.x == 0) {
         sum = 0;
         auto body_add = [&] (int i) { 
@@ -287,7 +298,7 @@ REDUCTION:;
         };
         UnrollerL<0, factor_2(BLOCK_SIZE)>::step(body_add, 0);
         atomicAdd(&d_final_result, sum);
-        }
+    }
 }
 
 constexpr bool 
