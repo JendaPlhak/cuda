@@ -19,7 +19,7 @@ struct sMolecule {
 #endif
 #include "kernel_CPU.c"
 
-#define N 50000
+#define N 2000
 
 void createMolecules(sMolecule A, sMolecule B, int n) {
     for (int i = 0; i < n; i++) {

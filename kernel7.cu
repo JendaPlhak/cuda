@@ -10,34 +10,38 @@
 
 // ####### BLOCK SIZE ######
 #define BLOCK_SIZE_BIG_750 512
-// #define BLOCK_SIZE_BIG_480 320
+#define BLOCK_SIZE_BIG_480 256
 
-// #define BLOCK_SIZE_SMALL_750 96
-// #define BLOCK_SIZE_SMALL_480 64
+#define BLOCK_SIZE_SMALL_750 96
+#define BLOCK_SIZE_SMALL_480 64
 
-#define BLOCK_SIZE_BIG_480 10
+// #define BLOCK_SIZE_BIG_480 10
 
-#define BLOCK_SIZE_SMALL_750 10
-#define BLOCK_SIZE_SMALL_480 10
+// #define BLOCK_SIZE_SMALL_750 4
+// #define BLOCK_SIZE_SMALL_480 10
 // #########################
 
 // ####### UNROLLING #######
 #define UNROLL_N_BIG_750 32
-// #define UNROLL_N_BIG_480 64
+#define UNROLL_N_BIG_480 16
 
-// #define UNROLL_N_BIG_750 1
+#define UNROLL_N_BIG_750 1
 #define UNROLL_N_BIG_480 1
 
-// #define UNROLL_N_SMALL_750 16
-// #define UNROLL_N_SMALL_480 32
+#define UNROLL_N_SMALL_750 8
+#define UNROLL_N_SMALL_480 32
 
-#define UNROLL_N_SMALL_750 1
-#define UNROLL_N_SMALL_480 1
+// #define UNROLL_N_SMALL_750 1
+// #define UNROLL_N_SMALL_480 1
 
 // #########################
 
 // ####### UNROLLING #######
-#define INNER_N_ 2
+#define INNER_N_BIG_750 2
+#define INNER_N_BIG_480 4
+
+#define INNER_N_SMALL_750 2
+#define INNER_N_SMALL_480 2
 // #########################
 
 enum GPU_t {
@@ -93,9 +97,9 @@ __device__ __host__
 inline uint
 getGridSum(int rows)
 {
-    int GRID_SIZE   = ((rows - (rows % N)) * (1 + rows / N)) / 2;
-    GRID_SIZE      += (int) ceil(rows / (float) N) * (rows % N);
-    return GRID_SIZE;
+    float GRID_SIZE = ((rows - (rows % N)) * (1 + rows / N)) / 2.f;
+    GRID_SIZE      += ceil(rows / (float) N) * (rows % N);
+    return (uint) GRID_SIZE;
 }
 
 //lambda unroller
@@ -141,8 +145,8 @@ float loop(const int size, const int i, const int begin,
             sum += d_sumA + d_sumB;
             sum += -2.f * sqrt(d_sumA * d_sumB);
         };
-
-        if (not is_big || not diagonal_block || i < begin + j) { // Real index of Atom corresponding to j.
+        if (not diagonal_block || i < begin + j) { // Real index of Atom corresponding to j.
+        // if (not is_big || not diagonal_block || i < begin + j) { // Real index of Atom corresponding to j.
             UnrollerL<0, INNER_N>::step(inner_loop, 0);
         }
     };
@@ -171,27 +175,35 @@ float loop(const int size, const int i, const int begin,
             UnrollerL<0, UNROLL_N>::step(body, offset);
         }
     }
-    if (not is_big && diagonal_block) {
-        return sum / 2.f;
-    } else {
+    // if (not is_big && diagonal_block) {
+    //     return sum / 2.f;
+    // } else {
         return sum;
-    }
+    // }
 }
 
 template <unsigned INNER_N>
 __device__ inline
-void getIndexes(const uint block_idx, int & _row, int & _col)
+void getIndexes(uint block_idx, int & _row, int & _col)
 {
+    block_idx += 1; // indexing is from zero but calculation need it from 1
+
     int lower_row = (sqrt(8.f * block_idx * INNER_N + pow_2(INNER_N)) - INNER_N) / 2.f;
+    // if (block_idx == 2 + 1)
+    //     printf("Lower row = %d\n", lower_row);
     for (int row = lower_row; row <= lower_row + INNER_N; ++row) {
         uint sum = getGridSum<INNER_N>(row);
-        if (block_idx == sum) {
-            _row = row;
-            _col = block_idx - sum;
+        // if (block_idx == 2 + 1)
+        //     printf("block_idx = %d, row = %d, Exact sum = %d\n", block_idx, row, sum);
+        if (sum >= block_idx) {
+            _row = row - 1;
+            // this way block will form lexicographic sort order according to pair (row, col)
+            _col = sum - block_idx;
+            return;
         }
     }
-    _row = 0;
-    _col = 0;
+    _row = -1;
+    _col = -1;
 }
 
 template <unsigned BLOCK_SIZE, unsigned UNROLL_N, unsigned INNER_N, bool is_big>
@@ -207,7 +219,10 @@ void atoms_difference(const sMolecule A, const sMolecule B,
     __shared__ bool end_block;
 
     if (0 == threadIdx.x) {
-        getIndexes<INNER_N>(threadIdx.x, row, col);
+
+        getIndexes<INNER_N>(blockIdx.x, row, col);
+        // if (blockIdx.x == 2)
+            // printf("BlockIdx = %d, Row = %d, Col = %d\n", blockIdx.x, row, col);
 
         diagonal_block = row == col * INNER_N;
     }
@@ -218,6 +233,7 @@ void atoms_difference(const sMolecule A, const sMolecule B,
     int i     = block_begin + threadIdx.x * INNER_N;
     int begin = row * BLOCK_SIZE;
 
+    // printf("Loading Atom: %d\n", begin + threadIdx.x);
     __shared__ float A_x[BLOCK_SIZE], A_y[BLOCK_SIZE], A_z[BLOCK_SIZE];
     A_x[threadIdx.x] = A.x[begin + threadIdx.x];
     A_y[threadIdx.x] = A.y[begin + threadIdx.x];
@@ -235,6 +251,7 @@ void atoms_difference(const sMolecule A, const sMolecule B,
         goto REDUCTION;
     } else {
         auto body = [&] (int j) {
+            // printf("Against atom: %d\n", i + j);
             a[j].x = A.x[i + j];
             a[j].y = A.y[i + j];
             a[j].z = A.z[i + j];
@@ -349,7 +366,7 @@ template <unsigned BLOCK_SIZE, unsigned UNROLL_N, unsigned INNER_N, bool is_big>
 float solveGPU_templated(const sMolecule d_A, const sMolecule d_B, const int n) {
 
     int rows        = n / BLOCK_SIZE + (n % BLOCK_SIZE == 0 ? 0 : 1);
-    int cols        = rows / INNER_N;
+    // int cols        = rows / INNER_N;
 
     int GRID_SIZE   = getGridSum<INNER_N>(rows);
 
@@ -358,6 +375,7 @@ float solveGPU_templated(const sMolecule d_A, const sMolecule d_B, const int n) 
 
     cudaMemcpyToSymbol(d_final_result, &RMSD, sizeof(RMSD));
 
+    // printf("Grid size: %d, rows = %d, cols = %d\n", GRID_SIZE, rows, cols);
     atoms_difference<BLOCK_SIZE, UNROLL_N, INNER_N, is_big>
         <<<GRID_SIZE, BLOCK_SIZE>>>(d_A, d_B, d_result, n);
 
@@ -387,18 +405,18 @@ float solveGPU(const sMolecule d_A, const sMolecule d_B, const int n) {
     if (isBig(n)) {
         if (GPU_t::GTX_750 == GPU_TYPE) {
             return solveGPU_templated<BLOCK_SIZE_BIG_750, UNROLL_N_BIG_750,
-                                        INNER_N_, true>(d_A, d_B, n);
+                                        INNER_N_BIG_750, true>(d_A, d_B, n);
         } else {
             return solveGPU_templated<BLOCK_SIZE_BIG_480, UNROLL_N_BIG_480,
-                                        INNER_N_, true>(d_A, d_B, n);
+                                        INNER_N_BIG_480, true>(d_A, d_B, n);
         }
     } else {
         if (GPU_t::GTX_750 == GPU_TYPE) {
             return solveGPU_templated<BLOCK_SIZE_SMALL_750, UNROLL_N_SMALL_750,
-                                        INNER_N_, false>(d_A, d_B, n);
+                                        INNER_N_SMALL_750, false>(d_A, d_B, n);
         } else {
             return solveGPU_templated<BLOCK_SIZE_SMALL_480, UNROLL_N_SMALL_480,
-                                        INNER_N_, false>(d_A, d_B, n);
+                                        INNER_N_SMALL_480, false>(d_A, d_B, n);
         }
     }
 }

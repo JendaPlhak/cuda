@@ -1,5 +1,5 @@
 CXX     := nvcc
-CFLAGS  := -arch compute_20 -lcublas -g
+CFLAGS  := -arch compute_20 -lcublas
 CFLAGS  += -O3 --use_fast_math -std=c++11
 
 SRCS    := kernel_CPU.c
