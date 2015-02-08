@@ -10,21 +10,34 @@
 
 // ####### BLOCK SIZE ######
 #define BLOCK_SIZE_BIG_750 512
-#define BLOCK_SIZE_BIG_480 320
+// #define BLOCK_SIZE_BIG_480 320
 
-#define BLOCK_SIZE_SMALL_750 96
-#define BLOCK_SIZE_SMALL_480 64
+// #define BLOCK_SIZE_SMALL_750 96
+// #define BLOCK_SIZE_SMALL_480 64
+
+#define BLOCK_SIZE_BIG_480 10
+
+#define BLOCK_SIZE_SMALL_750 10
+#define BLOCK_SIZE_SMALL_480 10
 // #########################
 
 // ####### UNROLLING #######
 #define UNROLL_N_BIG_750 32
-#define UNROLL_N_BIG_480 64
+// #define UNROLL_N_BIG_480 64
 
 // #define UNROLL_N_BIG_750 1
-// #define UNROLL_N_BIG_480 1
+#define UNROLL_N_BIG_480 1
 
-#define UNROLL_N_SMALL_750 16
-#define UNROLL_N_SMALL_480 32
+// #define UNROLL_N_SMALL_750 16
+// #define UNROLL_N_SMALL_480 32
+
+#define UNROLL_N_SMALL_750 1
+#define UNROLL_N_SMALL_480 1
+
+// #########################
+
+// ####### UNROLLING #######
+#define INNER_N_ 2
 // #########################
 
 enum GPU_t {
@@ -51,28 +64,42 @@ float CPU_reduction(float *d_data, const unsigned int n)
 __device__ float d_final_result = 0.0f;
 
 // expects d_data to be array of size n = 2^k
-__global__ void 
+__global__ void
 GPU_reduction(float *d_data, unsigned int n)
 {
     const unsigned index = threadIdx.x + blockIdx.x * blockDim.x;
-    
+
     d_final_result += d_data[index] + d_data[2 * index];
 }
 
-// For given n computes maximal number k which satisfies n % 2^k == 0 
-__device__ constexpr int 
+struct Atom {
+    float x, y, z;
+};
+
+// For given n computes maximal number k which satisfies n % 2^k == 0
+__device__ constexpr int
 divisible_2(int n, int k = 0) {
     return n % 2 == 0 ? divisible_2(n / 2, k + 1) : k;
 }
 
 // For given n computes maximal number s such as n % s == 0 and s % 2 != 0
-__device__ constexpr int 
+__device__ constexpr int
 factor_2(int n) {
     return n % 2 == 0 ? factor_2(n / 2) : n;
 }
 
-template<int Begin, int End, int Step = 1>
+template<unsigned N>
+__device__ __host__
+inline uint
+getGridSum(int rows)
+{
+    int GRID_SIZE   = ((rows - (rows % N)) * (1 + rows / N)) / 2;
+    GRID_SIZE      += (int) ceil(rows / (float) N) * (rows % N);
+    return GRID_SIZE;
+}
+
 //lambda unroller
+template<int Begin, int End, int Step = 1>
 struct UnrollerL {
     template<typename Lambda>
     __device__ static void step(Lambda& func, const int offset) {
@@ -88,30 +115,35 @@ struct UnrollerL<End, End, Step> {
     }
 };
 
-template<unsigned BLOCK_SIZE, unsigned UNROLL_N, bool diagonal_block, bool end_block, bool is_big>
+template<unsigned BLOCK_SIZE, unsigned UNROLL_N, unsigned INNER_N, bool diagonal_block, bool end_block, bool is_big>
 __device__ inline
 float loop(const int size, const int i, const int begin,
-           const float a_x, const float a_y, const float a_z, const float b_x, const float b_y, const float b_z,
+           const Atom (&a)[INNER_N], const Atom (&b)[INNER_N],
            const float A_x[BLOCK_SIZE], const float A_y[BLOCK_SIZE], const float A_z[BLOCK_SIZE],
            const float B_x[BLOCK_SIZE], const float B_y[BLOCK_SIZE], const float B_z[BLOCK_SIZE])
 {
     float sum = 0.0;
+
     auto body = [&] (int j) {
-        if (not is_big || not diagonal_block || i < begin + j) { // Real index of Atom corresponding to j.
-            float diff_x = A_x[j] - a_x;
-            float diff_y = A_y[j] - a_y;
-            float diff_z = A_z[j] - a_z;
+        auto inner_loop = [&] (int k) {
+            float diff_x = A_x[j] - a[k].x;
+            float diff_y = A_y[j] - a[k].y;
+            float diff_z = A_z[j] - a[k].z;
 
             float d_sumA = pow_2(diff_x) + pow_2(diff_y) + pow_2(diff_z);
 
-            diff_x = B_x[j] - b_x;
-            diff_y = B_y[j] - b_y;
-            diff_z = B_z[j] - b_z;
+            diff_x = B_x[j] - b[k].x;
+            diff_y = B_y[j] - b[k].y;
+            diff_z = B_z[j] - b[k].z;
 
             float d_sumB = pow_2(diff_x) + pow_2(diff_y) + pow_2(diff_z);
 
             sum += d_sumA + d_sumB;
             sum += -2.f * sqrt(d_sumA * d_sumB);
+        };
+
+        if (not is_big || not diagonal_block || i < begin + j) { // Real index of Atom corresponding to j.
+            UnrollerL<0, INNER_N>::step(inner_loop, 0);
         }
     };
 
@@ -146,32 +178,44 @@ float loop(const int size, const int i, const int begin,
     }
 }
 
-template <unsigned BLOCK_SIZE, unsigned UNROLL_N, bool is_big>
+template <unsigned INNER_N>
+__device__ inline
+void getIndexes(const uint block_idx, int & _row, int & _col)
+{
+    int lower_row = (sqrt(8.f * block_idx * INNER_N + pow_2(INNER_N)) - INNER_N) / 2.f;
+    for (int row = lower_row; row <= lower_row + INNER_N; ++row) {
+        uint sum = getGridSum<INNER_N>(row);
+        if (block_idx == sum) {
+            _row = row;
+            _col = block_idx - sum;
+        }
+    }
+    _row = 0;
+    _col = 0;
+}
+
+template <unsigned BLOCK_SIZE, unsigned UNROLL_N, unsigned INNER_N, bool is_big>
 __global__
 void atoms_difference(const sMolecule A, const sMolecule B,
                         float * d_result,
-                        const int n,
-                        const int line_blocks)
+                        const int n)
 {
     float sum = 0.f;
 
-    float a_x, a_y, a_z, b_x, b_y, b_z;
     __shared__ int row, col;
     __shared__ bool diagonal_block;
     __shared__ bool end_block;
 
     if (0 == threadIdx.x) {
-        // calculate current row by formula int(1/2 * (sqrt(8k + 1) - 1))
-        row = (sqrt(8.0f * blockIdx.x + 1) - 1) / 2.0f;
-        col = blockIdx.x - (row * (row + 1)) / 2;
+        getIndexes<INNER_N>(threadIdx.x, row, col);
 
-        diagonal_block = row == col;
-    } 
+        diagonal_block = row == col * INNER_N;
+    }
 
     __syncthreads();
 
-    int block_begin = col * BLOCK_SIZE;
-    int i     = block_begin + threadIdx.x;
+    int block_begin = col * BLOCK_SIZE * INNER_N;
+    int i     = block_begin + threadIdx.x * INNER_N;
     int begin = row * BLOCK_SIZE;
 
     __shared__ float A_x[BLOCK_SIZE], A_y[BLOCK_SIZE], A_z[BLOCK_SIZE];
@@ -184,74 +228,69 @@ void atoms_difference(const sMolecule A, const sMolecule B,
     B_y[threadIdx.x] = B.y[begin + threadIdx.x];
     B_z[threadIdx.x] = B.z[begin + threadIdx.x];
 
+    Atom a[INNER_N];
+    Atom b[INNER_N];
+
     if (i >= n) {
         goto REDUCTION;
-    }
-
-    // TODO: Does this provide any speedup?
-    if (true == diagonal_block) {
-        a_x = A_x[threadIdx.x];
-        a_y = A_y[threadIdx.x];
-        a_z = A_z[threadIdx.x];
-
-        b_x = B_x[threadIdx.x];
-        b_y = B_y[threadIdx.x];
-        b_z = B_z[threadIdx.x];
     } else {
-        a_x = A.x[i];
-        a_y = A.y[i];
-        a_z = A.z[i];
+        auto body = [&] (int j) {
+            a[j].x = A.x[i + j];
+            a[j].y = A.y[i + j];
+            a[j].z = A.z[i + j];
 
-        b_x = B.x[i];
-        b_y = B.y[i];
-        b_z = B.z[i];
-    }
+            b[j].x = B.x[i + j];
+            b[j].y = B.y[i + j];
+            b[j].z = B.z[i + j];
+        };
 
-    // calculate upper bound
-    __shared__ int size;
-    if (threadIdx.x == 0) {
-        int tmp_size = begin + BLOCK_SIZE - n;
-        // calculate actual size of data block
-        if (tmp_size < 0) {
-            size = BLOCK_SIZE;
-            end_block = false;
+        UnrollerL<0, INNER_N>::step(body, 0);
+
+        // calculate upper bound
+        __shared__ int size;
+        if (threadIdx.x == 0) {
+            int tmp_size = begin + BLOCK_SIZE - n;
+            // calculate actual size of data block
+            if (tmp_size < 0) {
+                size = BLOCK_SIZE;
+                end_block = false;
+            } else {
+                size = BLOCK_SIZE - tmp_size;
+                end_block = true;
+            }
+        }
+        __syncthreads();
+
+        if (true == diagonal_block && true == end_block) {
+            sum = loop<BLOCK_SIZE, UNROLL_N, INNER_N,
+                         true, true, is_big>
+                                    (size, i, begin,
+                                     a, b,
+                                     A_x, A_y, A_z,
+                                     B_x, B_y, B_z);
+        } else if (true == diagonal_block && false == end_block) {
+            sum = loop<BLOCK_SIZE, UNROLL_N, INNER_N,
+                         true, false, is_big>
+                                    (size, i, begin,
+                                     a, b,
+                                     A_x, A_y, A_z,
+                                     B_x, B_y, B_z);
+        } else if (false == diagonal_block && true == end_block) {
+            sum = loop<BLOCK_SIZE, UNROLL_N, INNER_N,
+                         false, true, is_big>
+                                    (size, i, begin,
+                                     a, b,
+                                     A_x, A_y, A_z,
+                                     B_x, B_y, B_z);
         } else {
-            size = BLOCK_SIZE - tmp_size;
-            end_block = true;
+            sum = loop<BLOCK_SIZE, UNROLL_N, INNER_N,
+                         false, false, is_big>
+                                    (size, i, begin,
+                                      a, b,
+                                      A_x, A_y, A_z,
+                                      B_x, B_y, B_z);
         }
     }
-    __syncthreads();
-    
-    if (true == diagonal_block && true == end_block) {
-        sum = loop<BLOCK_SIZE, UNROLL_N,
-                     true, true, is_big>
-                                (size, i, begin,
-                                 a_x, a_y, a_z, b_x, b_y, b_z,
-                                 A_x, A_y, A_z,
-                                 B_x, B_y, B_z);
-    } else if (true == diagonal_block && false == end_block) {
-        sum = loop<BLOCK_SIZE, UNROLL_N,
-                     true, false, is_big>
-                                (size, i, begin,
-                                 a_x, a_y, a_z, b_x, b_y, b_z,
-                                 A_x, A_y, A_z,
-                                 B_x, B_y, B_z);
-    } else if (false == diagonal_block && true == end_block) {
-        sum = loop<BLOCK_SIZE, UNROLL_N,
-                     false, true, is_big>
-                                (size, i, begin,
-                                 a_x, a_y, a_z, b_x, b_y, b_z,
-                                 A_x, A_y, A_z,
-                                 B_x, B_y, B_z);
-    } else {
-        sum = loop<BLOCK_SIZE, UNROLL_N,
-                     false, false, is_big>
-                                (size, i, begin,
-                                  a_x, a_y, a_z, b_x, b_y, b_z,
-                                  A_x, A_y, A_z,
-                                  B_x, B_y, B_z);
-    }
-    
 REDUCTION:;
     __shared__ float reduction[BLOCK_SIZE];
     reduction[threadIdx.x] = sum;
@@ -293,7 +332,7 @@ REDUCTION:;
 
     if (threadIdx.x == 0) {
         sum = 0;
-        auto body_add = [&] (int i) { 
+        auto body_add = [&] (int i) {
             sum += reduction[i];
         };
         UnrollerL<0, factor_2(BLOCK_SIZE)>::step(body_add, 0);
@@ -301,25 +340,27 @@ REDUCTION:;
     }
 }
 
-constexpr bool 
+constexpr bool
 isBig(const int n) {
     return n > 2000;
 }
 
-template <unsigned BLOCK_SIZE, unsigned UNROLL_N, bool is_big>
+template <unsigned BLOCK_SIZE, unsigned UNROLL_N, unsigned INNER_N, bool is_big>
 float solveGPU_templated(const sMolecule d_A, const sMolecule d_B, const int n) {
 
-    int line_blocks = n / BLOCK_SIZE + (n % BLOCK_SIZE == 0 ? 0 : 1);
-    int GRID_SIZE   = (line_blocks * (line_blocks + 1)) / 2;
+    int rows        = n / BLOCK_SIZE + (n % BLOCK_SIZE == 0 ? 0 : 1);
+    int cols        = rows / INNER_N;
+
+    int GRID_SIZE   = getGridSum<INNER_N>(rows);
+
     float *d_result = NULL;
     float RMSD      = 0;
 
-
     cudaMemcpyToSymbol(d_final_result, &RMSD, sizeof(RMSD));
 
-    atoms_difference<BLOCK_SIZE, UNROLL_N, is_big><<<GRID_SIZE, BLOCK_SIZE>>>
-                                            (d_A, d_B, d_result, n, line_blocks);
-    
+    atoms_difference<BLOCK_SIZE, UNROLL_N, INNER_N, is_big>
+        <<<GRID_SIZE, BLOCK_SIZE>>>(d_A, d_B, d_result, n);
+
     cudaMemcpyFromSymbol(&RMSD, d_final_result, sizeof(RMSD));
 
     return sqrt(1 / ((float)n * ((float)n - 1)) * RMSD);
@@ -345,19 +386,19 @@ float solveGPU(const sMolecule d_A, const sMolecule d_B, const int n) {
     }
     if (isBig(n)) {
         if (GPU_t::GTX_750 == GPU_TYPE) {
-            return solveGPU_templated<BLOCK_SIZE_BIG_750,
-                                      UNROLL_N_BIG_750, true>(d_A, d_B, n);
+            return solveGPU_templated<BLOCK_SIZE_BIG_750, UNROLL_N_BIG_750,
+                                        INNER_N_, true>(d_A, d_B, n);
         } else {
-            return solveGPU_templated<BLOCK_SIZE_BIG_480,
-                                      UNROLL_N_BIG_480, true>(d_A, d_B, n);
+            return solveGPU_templated<BLOCK_SIZE_BIG_480, UNROLL_N_BIG_480,
+                                        INNER_N_, true>(d_A, d_B, n);
         }
     } else {
         if (GPU_t::GTX_750 == GPU_TYPE) {
-            return solveGPU_templated<BLOCK_SIZE_SMALL_750,
-                                      UNROLL_N_SMALL_750, false>(d_A, d_B, n);
+            return solveGPU_templated<BLOCK_SIZE_SMALL_750, UNROLL_N_SMALL_750,
+                                        INNER_N_, false>(d_A, d_B, n);
         } else {
-            return solveGPU_templated<BLOCK_SIZE_SMALL_480,
-                                      UNROLL_N_SMALL_480, false>(d_A, d_B, n);
+            return solveGPU_templated<BLOCK_SIZE_SMALL_480, UNROLL_N_SMALL_480,
+                                        INNER_N_, false>(d_A, d_B, n);
         }
     }
 }

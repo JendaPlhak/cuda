@@ -8,7 +8,7 @@ struct sMolecule {
     float *x;
     float *y;
     float *z;
-    // some data about atoms in real application, 
+    // some data about atoms in real application,
     // do not corrupt mem. access optimization here...
 };
 
@@ -19,7 +19,7 @@ struct sMolecule {
 #endif
 #include "kernel_CPU.c"
 
-#define N 2000
+#define N 50000
 
 void createMolecules(sMolecule A, sMolecule B, int n) {
     for (int i = 0; i < n; i++) {
@@ -51,7 +51,7 @@ int main(int argc, char **argv){
 
     // parse command line
     int device = 0;
-    if (argc == 2) 
+    if (argc == 2)
         device = atoi(argv[1]);
     if (cudaSetDevice(device) != cudaSuccess){
         fprintf(stderr, "Cannot set CUDA device!\n");
@@ -73,8 +73,8 @@ int main(int argc, char **argv){
     B.x = (float*)malloc(N*sizeof(B.x[0]));
         B.y = (float*)malloc(N*sizeof(B.y[0]));
         B.z = (float*)malloc(N*sizeof(B.z[0]));
-    createMolecules(A, B, N);      
- 
+    createMolecules(A, B, N);
+
     // allocate and set device memory
     if (cudaMalloc((void**)&dA.x, N*sizeof(dA.x[0])) != cudaSuccess
     || cudaMalloc((void**)&dA.y, N*sizeof(dA.y[0])) != cudaSuccess
@@ -95,8 +95,7 @@ int main(int argc, char **argv){
     // solve on CPU
         printf("Solving on CPU...\n");
     cudaEventRecord(start, 0);
-    // RMSD_CPU = solveCPU(A, B, N);
-    RMSD_CPU = 0.f;
+    RMSD_CPU = solveCPU(A, B, N);
     cudaEventRecord(stop, 0);
         cudaEventSynchronize(stop);
         float time;
