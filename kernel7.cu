@@ -25,8 +25,8 @@
 #define UNROLL_N_BIG_750 32
 #define UNROLL_N_BIG_480 16
 
-#define UNROLL_N_BIG_750 1
-#define UNROLL_N_BIG_480 1
+// #define UNROLL_N_BIG_750 1
+// #define UNROLL_N_BIG_480 1
 
 #define UNROLL_N_SMALL_750 8
 #define UNROLL_N_SMALL_480 32
@@ -130,23 +130,23 @@ float loop(const int size, const int i, const int begin,
 
     auto body = [&] (int j) {
         auto inner_loop = [&] (int k) {
-            float diff_x = A_x[j] - a[k].x;
-            float diff_y = A_y[j] - a[k].y;
-            float diff_z = A_z[j] - a[k].z;
+            if (not diagonal_block || i + k < begin + j) {
+                float diff_x = A_x[j] - a[k].x;
+                float diff_y = A_y[j] - a[k].y;
+                float diff_z = A_z[j] - a[k].z;
 
-            float d_sumA = pow_2(diff_x) + pow_2(diff_y) + pow_2(diff_z);
+                float d_sumA = pow_2(diff_x) + pow_2(diff_y) + pow_2(diff_z);
 
-            diff_x = B_x[j] - b[k].x;
-            diff_y = B_y[j] - b[k].y;
-            diff_z = B_z[j] - b[k].z;
+                diff_x = B_x[j] - b[k].x;
+                diff_y = B_y[j] - b[k].y;
+                diff_z = B_z[j] - b[k].z;
 
-            float d_sumB = pow_2(diff_x) + pow_2(diff_y) + pow_2(diff_z);
+                float d_sumB = pow_2(diff_x) + pow_2(diff_y) + pow_2(diff_z);
 
-            sum += d_sumA + d_sumB;
-            sum += -2.f * sqrt(d_sumA * d_sumB);
+                sum += pow_2(d_sumA * rsqrtf(d_sumA) - d_sumB * rsqrtf(d_sumB));
+            }
         };
         if (not diagonal_block || i < begin + j) { // Real index of Atom corresponding to j.
-        // if (not is_big || not diagonal_block || i < begin + j) { // Real index of Atom corresponding to j.
             UnrollerL<0, INNER_N>::step(inner_loop, 0);
         }
     };
@@ -224,7 +224,7 @@ void atoms_difference(const sMolecule A, const sMolecule B,
         // if (blockIdx.x == 2)
             // printf("BlockIdx = %d, Row = %d, Col = %d\n", blockIdx.x, row, col);
 
-        diagonal_block = row == col * INNER_N;
+        diagonal_block = (row / INNER_N == col);
     }
 
     __syncthreads();
