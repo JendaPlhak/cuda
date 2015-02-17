@@ -11,8 +11,8 @@
 #define pow_2(x) ( ((x) * (x)) )
 
 // ####### BLOCK SIZE ######
-#define BLOCK_SIZE_BIG_750 256
-#define BLOCK_SIZE_BIG_480 512
+#define BLOCK_SIZE_BIG_750 512
+#define BLOCK_SIZE_BIG_480 256
 
 #define BLOCK_SIZE_SMALL_750 96
 #define BLOCK_SIZE_SMALL_480 64
@@ -24,7 +24,7 @@
 // #########################
 
 // ####### UNROLLING #######
-#define UNROLL_N_BIG_750 32
+#define UNROLL_N_BIG_750 16
 #define UNROLL_N_BIG_480 16
 
 // #define UNROLL_N_BIG_750 1
@@ -39,7 +39,7 @@
 // #########################
 
 // ####### UNROLLING #######
-#define INNER_N_BIG_750 2
+#define INNER_N_BIG_750 4
 #define INNER_N_BIG_480 4
 
 #define INNER_N_SMALL_750 2
@@ -150,6 +150,25 @@ float loop(const int size, const int i, const int begin,
         if (not diagonal_block || i < begin + j) { // Real index of Atom corresponding to j.
             UnrollerL<0, INNER_N>::step(inner_loop, 0);
         }
+        // if (not diagonal_block || i < begin + j) { // Real index of Atom corresponding to j.
+        //     for (int k = 0; k < INNER_N; ++k) {
+        //         if (not diagonal_block || i + k < begin + j) {
+        //             float diff_x = A.x[begin + j] - a[k].x;
+        //             float diff_y = A.y[begin + j] - a[k].y;
+        //             float diff_z = A.z[begin + j] - a[k].z;
+
+        //             float d_sumA = pow_2(diff_x) + pow_2(diff_y) + pow_2(diff_z);
+
+        //             diff_x = B.x[begin + j] - b[k].x;
+        //             diff_y = B.y[begin + j] - b[k].y;
+        //             diff_z = B.z[begin + j] - b[k].z;
+
+        //             float d_sumB = pow_2(diff_x) + pow_2(diff_y) + pow_2(diff_z);
+
+        //             sum += pow_2(d_sumA * rsqrtf(d_sumA) - d_sumB * rsqrtf(d_sumB));
+        //         }
+        //     }
+        // }
     };
 
     if (end_block) {

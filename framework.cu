@@ -11,11 +11,11 @@ struct sMolecule {
     // some data about atoms in real application,
     // do not corrupt mem. access optimization here...
 };
-
+#ifdef KERNEL_NO_8
+    #include "kernel8.cu"
+#endif
 #ifdef KERNEL_NO_7
     #include "kernel7.cu"
-#else
-    #include "kernel6.cu"
 #endif
 #include "kernel_CPU.c"
 
