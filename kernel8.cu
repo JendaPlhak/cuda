@@ -82,6 +82,13 @@ struct Atom {
     float x, y, z;
 };
 
+struct Float_4 {
+    __device__ inline static constexpr float get(const float4 & data, const int & p) {
+        return p == 0 ? data.x : (p == 1 ? data.y : (p == 2 ? data.z : data.w));
+    }
+
+};
+
 // For given n computes maximal number k which satisfies n % 2^k == 0
 __device__ constexpr int
 divisible_2(int n, int k = 0) {
@@ -150,25 +157,42 @@ float loop(const int size, const int i, const int begin,
         if (not diagonal_block || i < begin + j) { // Real index of Atom corresponding to j.
             UnrollerL<0, INNER_N>::step(inner_loop, 0);
         }
-        // if (not diagonal_block || i < begin + j) { // Real index of Atom corresponding to j.
-        //     for (int k = 0; k < INNER_N; ++k) {
-        //         if (not diagonal_block || i + k < begin + j) {
-        //             float diff_x = A.x[begin + j] - a[k].x;
-        //             float diff_y = A.y[begin + j] - a[k].y;
-        //             float diff_z = A.z[begin + j] - a[k].z;
+    };
 
-        //             float d_sumA = pow_2(diff_x) + pow_2(diff_y) + pow_2(diff_z);
+    auto body2 = [&] (const int j) {
 
-        //             diff_x = B.x[begin + j] - b[k].x;
-        //             diff_y = B.y[begin + j] - b[k].y;
-        //             diff_z = B.z[begin + j] - b[k].z;
+        const float4 & Ax4 = reinterpret_cast<const float4*>(A.x)[begin / 4 + j];
+        const float4 & Ay4 = reinterpret_cast<const float4*>(A.y)[begin / 4 + j];
+        const float4 & Az4 = reinterpret_cast<const float4*>(A.z)[begin / 4 + j];
+        const float4 & Bx4 = reinterpret_cast<const float4*>(B.x)[begin / 4 + j];
+        const float4 & By4 = reinterpret_cast<const float4*>(B.y)[begin / 4 + j];
+        const float4 & Bz4 = reinterpret_cast<const float4*>(B.z)[begin / 4 + j];
 
-        //             float d_sumB = pow_2(diff_x) + pow_2(diff_y) + pow_2(diff_z);
+        // printf("%f and %f\n", A.x[begin], Ax4.x);
 
-        //             sum += pow_2(d_sumA * rsqrtf(d_sumA) - d_sumB * rsqrtf(d_sumB));
-        //         }
-        //     }
-        // }
+        auto latency_mask = [&] (const int l) {
+            auto inner_loop  = [&] (const int k) {
+                if (not diagonal_block || i + k < begin + j * 4 + l) {
+                    float diff_x = Float_4::get(Ax4, l) - a[k].x;
+                    float diff_y = Float_4::get(Ay4, l) - a[k].y;
+                    float diff_z = Float_4::get(Az4, l) - a[k].z;
+
+                    float d_sumA = pow_2(diff_x) + pow_2(diff_y) + pow_2(diff_z);
+
+                    diff_x = Float_4::get(Bx4, l) - b[k].x;
+                    diff_y = Float_4::get(By4, l) - b[k].y;
+                    diff_z = Float_4::get(Bz4, l) - b[k].z;
+
+                    float d_sumB = pow_2(diff_x) + pow_2(diff_y) + pow_2(diff_z);
+
+                    sum += pow_2(d_sumA * rsqrtf(d_sumA) - d_sumB * rsqrtf(d_sumB));
+                }
+            };
+            if (not diagonal_block || i < begin + j * 4 + l) { // Real index of Atom corresponding to j.
+                UnrollerL<0, INNER_N>::step(inner_loop, 0);
+            }
+        };
+        UnrollerL<0, 4>::step(latency_mask, 0);
     };
 
     if (end_block) {
@@ -191,8 +215,8 @@ float loop(const int size, const int i, const int begin,
                 }
         }
     } else {
-        for (unsigned offset = 0; offset < BLOCK_SIZE; offset += UNROLL_N) {
-            UnrollerL<0, UNROLL_N>::step(body, offset);
+        for (unsigned offset = 0; offset < BLOCK_SIZE / 4; offset += UNROLL_N / 4) {
+            UnrollerL<0, UNROLL_N / 4>::step(body2, offset);
         }
     }
     // if (not is_big && diagonal_block) {
